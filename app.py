@@ -9,34 +9,29 @@ CORS(app)
 def download():
     url = request.json['url']
     
-    # Define yt-dlp options to select MP4 format (prefer 1080p)
+    # Define yt-dlp options to prefer MP4 format, explicitly avoid HLS
     ydl_opts = {
         'quiet': True,
-        'skip_download': True,  # Don't download the file, just extract info
+        'skip_download': False,  # Actually download the video
         'format': 'bestvideo[height<=?1080]+bestaudio/best',  # Best video up to 1080p and best audio
         'noplaylist': True,  # Avoid playlists if the URL is a playlist
-        'prefer_free_formats': True,  # Prefer free formats (e.g., MP4 over other formats like WebM)
-        'outtmpl': '%(id)s.%(ext)s'  # Set the output template for the file
+        'prefer_free_formats': True,  # Prefer free formats like MP4 over others
+        'outtmpl': '%(id)s.%(ext)s',  # Template for output file names
+        'merge_output_format': 'mp4',  # Force the output format to mp4
     }
     
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        # Extract video info without downloading
-        info = ydl.extract_info(url, download=False)
+        # Extract video info and download the video
+        info = ydl.extract_info(url, download=True)
         
-        # Get the direct download URL for the MP4 video
+        # Get the direct download URL for the best available MP4 format
         download_url = None
-        if 'formats' in info:
-            for format in info['formats']:
-                # Select MP4 format, preferably 1080p or the best available
-                if format.get('ext') == 'mp4' and format.get('height') == 1080:
-                    download_url = format['url']
-                    break
-            # If no 1080p MP4 found, fallback to any MP4 format
-            if not download_url:
-                for format in info['formats']:
-                    if format.get('ext') == 'mp4':
-                        download_url = format['url']
-                        break
+        for format in info['formats']:
+            if format.get('ext') == 'mp4' and format.get('height') == 1080:
+                download_url = format['url']
+                break
+            elif format.get('ext') == 'mp4':
+                download_url = format['url']
         
         if not download_url:
             return jsonify({'error': 'No MP4 format found or no available download link.'}), 400
