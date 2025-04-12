@@ -7,16 +7,26 @@ CORS(app)
 
 @app.route('/download', methods=['POST'])
 def download():
-    data = request.get_json()
-    url = data.get('url')
-
+    url = request.json['url']
     ydl_opts = {'quiet': True, 'skip_download': True}
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=False)
-        return jsonify({
-            'title': info.get('title'),
-            'url': info.get('url') or info.get('webpage_url')
-        })
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            response = {
+                'title': info['title'],
+                'url': info['url'] if 'url' in info else info['webpage_url']
+            }
+            print(f"Response: {response}")  # Log response to the console
+            return jsonify(response)
+    except yt_dlp.DownloadError as e:
+        error_response = {'error': f"Download error: {str(e)}"}
+        print(f"Error Response: {error_response}")  # Log error response to console
+        return jsonify(error_response), 400
+    except Exception as e:
+        error_response = {'error': f"Error: {str(e)}"}
+        print(f"Error Response: {error_response}")  # Log error response to console
+        return jsonify(error_response), 400
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    app.run(debug=True)
