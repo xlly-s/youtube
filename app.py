@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify
 import yt_dlp
 from flask_cors import CORS
+import os
 
 app = Flask(__name__)
 CORS(app)
@@ -29,4 +30,5 @@ def download():
         return jsonify(error_response), 400
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    port = os.getenv("PORT", 5000)  # Get the port from the environment or default to 5000
+    app.run(host="0.0.0.0", port=port, debug=True)
