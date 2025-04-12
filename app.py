@@ -30,5 +30,5 @@ def download():
         return jsonify(error_response), 400
 
 if __name__ == '__main__':
-    port = os.getenv("PORT", 5000)  # Get the port from the environment or default to 5000
+    port = os.getenv("PORT", 5000)
     app.run(host="0.0.0.0", port=port, debug=True)
