@@ -1,6 +1,6 @@
-from flask import Flask, request, send_file, jsonify
-from flask_cors import CORS
+from flask import Flask, request, Response, jsonify
 import yt_dlp
+from flask_cors import CORS
 import tempfile
 import os
 
@@ -11,27 +11,36 @@ CORS(app)
 def download():
     url = request.json.get('url')
     if not url:
-        return jsonify({'error': 'No URL provided'}), 400
+        return jsonify({'error': 'Missing URL'}), 400
 
-    # Create a temp directory to store the video
     with tempfile.TemporaryDirectory() as tmpdir:
+        output_path = os.path.join(tmpdir, '%(id)s.%(ext)s')
+
         ydl_opts = {
             'quiet': True,
-            'outtmpl': os.path.join(tmpdir, '%(title)s.%(ext)s'),
-            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+            'format': 'bestvideo[height<=1080]+bestaudio/best',
+            'outtmpl': output_path,
             'merge_output_format': 'mp4',
         }
 
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=True)
-                filename = ydl.prepare_filename(info).replace('.webm', '.mp4')
+                filename = ydl.prepare_filename(info).replace('%(id)s', info['id']).replace('%(ext)s', 'mp4')
 
-            if not os.path.exists(filename):
-                return jsonify({'error': 'File not found'}), 500
+            def generate():
+                with open(filename, 'rb') as f:
+                    while True:
+                        chunk = f.read(8192)
+                        if not chunk:
+                            break
+                        yield chunk
 
-            # Send the file as an attachment (downloads immediately)
-            return send_file(filename, as_attachment=True)
+            file_size = os.path.getsize(filename)
+            return Response(generate(), mimetype='video/mp4', headers={
+                'Content-Disposition': f'attachment; filename="{info["title"]}.mp4"',
+                'Content-Length': str(file_size)
+            })
 
         except Exception as e:
             return jsonify({'error': str(e)}), 500
