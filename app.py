@@ -14,12 +14,18 @@ def get_video_info(url):
         'force_generic_extractor': True,
     }
     
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=False)
-        return info
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            return info
+    except Exception as e:
+        raise Exception(f"Failed to get video info: {str(e)}")
 
 @app.route('/get-formats', methods=['POST'])
 def get_formats():
+    if not request.is_json:
+        return jsonify({'error': 'Request must be JSON'}), 400
+        
     url = request.json.get('url')
     if not url:
         return jsonify({'error': 'No URL provided'}), 400
@@ -28,7 +34,7 @@ def get_formats():
         info = get_video_info(url)
         
         formats = []
-        # First get all formats with both video and audio
+        # Get combined formats (video + audio)
         for f in info.get('formats', []):
             if f.get('vcodec') != 'none' and f.get('acodec') != 'none':
                 quality = f.get('format_note') or f.get('height') or f.get('quality')
@@ -40,11 +46,11 @@ def get_formats():
                         'type': 'combined'
                     })
         
-        # Then get video-only formats for higher quality options
+        # Get video-only formats for higher quality options
         for f in info.get('formats', []):
             if f.get('vcodec') != 'none' and f.get('acodec') == 'none':
                 quality = f.get('format_note') or f.get('height') or f.get('quality')
-                if quality and int(quality) > 360:  # Only include higher quality video-only formats
+                if quality and isinstance(quality, int) and quality > 360:
                     formats.append({
                         'itag': f.get('format_id'),
                         'quality': f"{quality}p (video only)",
@@ -55,7 +61,9 @@ def get_formats():
         # Sort by quality (convert to int for proper sorting)
         def quality_to_int(q):
             try:
-                return int(q.split('p')[0]) if 'p' in q else 0
+                if isinstance(q, str):
+                    return int(q.split('p')[0]) if 'p' in q else 0
+                return int(q)
             except:
                 return 0
         
@@ -77,9 +85,13 @@ def get_formats():
 
 @app.route('/download', methods=['POST'])
 def download():
+    if not request.is_json:
+        return jsonify({'error': 'Request must be JSON'}), 400
+        
     url = request.json.get('url')
     itag = request.json.get('itag', 'best')
-    is_video_only = 'video only' in request.json.get('quality', '')
+    quality = request.json.get('quality', '')
+    is_video_only = 'video only' in quality if quality else False
     
     if not url:
         return jsonify({'error': 'No URL provided'}), 400
@@ -116,9 +128,8 @@ def download():
                     filename = new_filename
 
             if not os.path.exists(filename):
-                return jsonify({'error': 'File not found'}), 500
+                return jsonify({'error': 'File not found after download'}), 500
 
-            # Send the file as an attachment
             return send_file(
                 filename,
                 as_attachment=True,
@@ -126,7 +137,7 @@ def download():
             )
 
         except Exception as e:
-            return jsonify({'error': str(e)}), 500
+            return jsonify({'error': f"Download failed: {str(e)}"}), 500
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
