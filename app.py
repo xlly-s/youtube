@@ -28,23 +28,46 @@ def get_formats():
         info = get_video_info(url)
         
         formats = []
+        # First get all formats with both video and audio
         for f in info.get('formats', []):
-            if f.get('vcodec') != 'none' and f.get('acodec') != 'none':  # Only formats with both video and audio
+            if f.get('vcodec') != 'none' and f.get('acodec') != 'none':
                 quality = f.get('format_note') or f.get('height') or f.get('quality')
                 if quality:
                     formats.append({
                         'itag': f.get('format_id'),
                         'quality': f"{quality}p" if isinstance(quality, int) else str(quality),
-                        'ext': f.get('ext', 'mp4')
+                        'ext': f.get('ext', 'mp4'),
+                        'type': 'combined'
                     })
         
-        # Remove duplicates and sort by quality
+        # Then get video-only formats for higher quality options
+        for f in info.get('formats', []):
+            if f.get('vcodec') != 'none' and f.get('acodec') == 'none':
+                quality = f.get('format_note') or f.get('height') or f.get('quality')
+                if quality and int(quality) > 360:  # Only include higher quality video-only formats
+                    formats.append({
+                        'itag': f.get('format_id'),
+                        'quality': f"{quality}p (video only)",
+                        'ext': f.get('ext', 'mp4'),
+                        'type': 'video'
+                    })
+        
+        # Sort by quality (convert to int for proper sorting)
+        def quality_to_int(q):
+            try:
+                return int(q.split('p')[0]) if 'p' in q else 0
+            except:
+                return 0
+        
+        formats.sort(key=lambda x: quality_to_int(x['quality']), reverse=True)
+        
+        # Remove duplicates while keeping highest quality
         unique_formats = []
-        seen = set()
-        for f in sorted(formats, key=lambda x: int(x['quality'].replace('p', '')) if x['quality'].endswith('p') else 0, reverse=True):
-            key = f['quality']
-            if key not in seen:
-                seen.add(key)
+        seen_qualities = set()
+        for f in formats:
+            quality_num = f['quality'].split('p')[0]
+            if quality_num not in seen_qualities:
+                seen_qualities.add(quality_num)
                 unique_formats.append(f)
         
         return jsonify(unique_formats)
@@ -56,6 +79,7 @@ def get_formats():
 def download():
     url = request.json.get('url')
     itag = request.json.get('itag', 'best')
+    is_video_only = 'video only' in request.json.get('quality', '')
     
     if not url:
         return jsonify({'error': 'No URL provided'}), 400
@@ -67,7 +91,18 @@ def download():
             'outtmpl': os.path.join(tmpdir, '%(title)s.%(ext)s'),
             'format': itag if itag != 'best' else 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
             'merge_output_format': 'mp4',
+            'postprocessors': [{
+                'key': 'FFmpegVideoConvertor',
+                'preferedformat': 'mp4',
+            }],
         }
+
+        # For video-only formats, we need to merge with best audio
+        if is_video_only:
+            ydl_opts['format'] = f'{itag}+bestaudio'
+            ydl_opts['postprocessors'].append({
+                'key': 'FFmpegMetadata'
+            })
 
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
